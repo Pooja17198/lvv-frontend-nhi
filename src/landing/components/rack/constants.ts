@@ -1,7 +1,6 @@
-export const LVV_API =
-  window.location.host.includes("localhost")
-    ? "http://localhost:21000/lvv"
-    : `https://${window.location.host}/lvv`;
+import { getLvvApiBase } from "../../config/api";
+
+export const LVV_API = getLvvApiBase();
 
 export const IDE_API =
   window.location.host.includes("localhost")
