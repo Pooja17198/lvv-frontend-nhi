@@ -29,7 +29,7 @@ const Rack = (props: RackProps) => {
     resolveTooltip,
     validate,
     resolve,
-    downloadCsv,
+    downloadExcel,
   } = useRackValidation(props);
 
   // Lightweight toast for non-intrusive errors
@@ -196,8 +196,8 @@ const Rack = (props: RackProps) => {
             <oj-c-button
                 chroming="callToAction"
                 size="sm"
-                label="Download CSV"
-                onojAction={downloadCsv}
+                label="Download Excel"
+                onojAction={downloadExcel}
                 style="margin-left: 8px;"
                 disabled={isValidating || isDownloading || totalFailureRows === 0}
             ></oj-c-button>
