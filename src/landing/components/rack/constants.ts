@@ -11,6 +11,6 @@ export const IDE_API =
 export const VALIDATION_TABLE_ACCESSIBILITY = { rowHeader: "ActionItems" } as const;
 
 export const POLLING = {
-  MAX_ATTEMPTS: 40,
-  INTERVAL_MS: 30000,
+  MAX_ATTEMPTS: 60,
+  INTERVAL_MS: 10000,
 };
