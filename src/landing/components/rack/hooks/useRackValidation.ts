@@ -20,6 +20,8 @@ import { fetchWithRetry, createCsrfHeaders } from "../api";
 import { anyJobInProgress, parseContentDispositionFilename } from "../utils";
 import { emitMetric, TELEMETRY_METRICS } from "../../telemetry/api";
 
+const VALIDATION_SERVICE_REFRESH_INTERVAL_MS = 10_000;
+
 type UseRackValidationResult = {
     // state
     deviceStatuses: DeviceStatus[];
@@ -54,6 +56,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
     const currentRackKeyRef = useRef<string>("");
     const pageAbortRef = useRef<AbortController | null>(null);
     const ideRackRowsCacheRef = useRef<Map<string, PatchPanelRow[]>>(new Map());
+    const periodicValidationRefreshInFlightRef = useRef(false);
     const validationMeasurementRef = useRef<null | {
         measurementId: number;
         startedAt: number;
@@ -288,6 +291,84 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         return false; // this is validation API failure path
       }
     }, [props.region, props.rack_serial, props.rack, props.building]);
+
+    const refreshValidationServiceResultsForFirstDevice = useCallback(async (): Promise<boolean> => {
+        if (!rackContextReady) {
+            return false;
+        }
+
+        const firstDeviceName = deviceStatuses[0]?.deviceName;
+        if (!firstDeviceName || !props.region || !props.building || !props.rack_serial || !props.rack) {
+            return false;
+        }
+
+        if (periodicValidationRefreshInFlightRef.current) {
+            return false;
+        }
+
+        periodicValidationRefreshInFlightRef.current = true;
+        try {
+            const url = new URL(`${LVV_API}/getResultsFromValidationService`);
+            url.searchParams.set("regionName", props.region);
+            url.searchParams.set("buildingName", props.building);
+            url.searchParams.set("rackSerialNumber", props.rack_serial);
+            url.searchParams.set("rackNumber", props.rack);
+            url.searchParams.append("deviceNames", firstDeviceName);
+
+            const resp = await fetchWithRetry(url.href, {
+                method: "GET",
+                signal: pageAbortRef.current?.signal as AbortSignal | undefined,
+            });
+            if (!resp.ok) {
+                return false;
+            }
+
+            const data: unknown = await resp.json();
+            const normalized = normalizeValidationFailuresPayload(data, props.rack_serial);
+            const nextDeviceFailures = normalized[firstDeviceName];
+            if (!nextDeviceFailures) {
+                return false;
+            }
+
+            setValidationFailuresByDevice((prev) => ({
+                ...prev,
+                [firstDeviceName]: nextDeviceFailures,
+            }));
+            return true;
+        } catch (e: any) {
+            if (e?.name !== "AbortError") {
+                console.warn("[RackValidation] periodic validation-service refresh failed", {
+                    deviceName: firstDeviceName,
+                    message: e?.message || String(e),
+                });
+            }
+            return false;
+        } finally {
+            periodicValidationRefreshInFlightRef.current = false;
+        }
+    }, [
+        rackContextReady,
+        deviceStatuses,
+        props.region,
+        props.building,
+        props.rack_serial,
+        props.rack,
+    ]);
+
+    useEffect(() => {
+        if (!rackContextReady) return;
+        if (deviceStatuses.length === 0) return;
+
+        void refreshValidationServiceResultsForFirstDevice();
+
+        const intervalId = window.setInterval(() => {
+            void refreshValidationServiceResultsForFirstDevice();
+        }, VALIDATION_SERVICE_REFRESH_INTERVAL_MS);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [rackContextReady, deviceStatuses, refreshValidationServiceResultsForFirstDevice]);
 
     // initial/sequential load: devices then failures
     // Avoid "cancelled" flag; snapshot rack key and controller at effect start
