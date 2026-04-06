@@ -103,16 +103,16 @@ const Rack = (props: RackProps) => {
     const deviceNamesWithFailures = new Set(
         Object.values(validationFailuresByDevice)
             .filter((device) => {
-              const hasVisibleLldp = hideUnsupported
-                  ? device.tests.lldp.some((row) => String(row.linkStatus).toUpperCase() !== "UNSUPPORTED")
-                  : device.tests.lldp.length > 0;
-              return (
-                  hasVisibleLldp ||
-                  device.tests.optics.length > 0 ||
-                  device.tests.interfaces.length > 0 ||
-                  device.tests.fecBer.length > 0 ||
-                  device.tests.fans.length > 0
-              );
+              return device.sectionOrder.some((sectionKey) => {
+                const section = device.sections[sectionKey];
+                if (!section) return false;
+                if (String(section.title || "").trim().toLowerCase() === "lldp errors") {
+                  return hideUnsupported
+                      ? section.rows.some((row) => String(row.linkStatus).toUpperCase() !== "UNSUPPORTED")
+                      : section.rows.length > 0;
+                }
+                return section.rows.length > 0;
+              });
             })
             .map((device) => device.deviceName)
     );

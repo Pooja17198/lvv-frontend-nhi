@@ -2,18 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks"
 import {
     DeviceStatus,
     DeviceValidationFailures,
-    FanFailureRow,
-    FecBerFailureRow,
-    InterfaceFailureRow,
     JobErrorDetails,
-    LldpFailureRow,
-    OpticFailureRow,
-    PowerFailureRow,
     PatchPanelByDevicePort,
     PatchPanelRow,
     RackProps,
     ValidationFailure,
     ValidationFailuresByDevice,
+    ValidationTableRow,
 } from "../types";
 import { IDE_API, LVV_API, POLLING } from "../constants";
 import { fetchWithRetry, createCsrfHeaders } from "../api";
@@ -139,6 +134,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         if (!rackContextReady) return;
         previousStatusesRef.current = new Map();
         ideRackRowsCacheRef.current = new Map();
+        setValidationFailuresByDevice({});
         setPatchPanelByDevicePort({});
     }, [rackContextReady, props.region, props.rack_serial, props.rack, props.building]);
 
@@ -247,7 +243,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
 
         const data: unknown = await resp.json();
         const normalized = normalizeValidationFailuresPayload(data, props.rack_serial);
-        setValidationFailuresByDevice(normalized);
+        setValidationFailuresByDevice((prev) => mergeValidationFailuresByDevice(prev, normalized));
 
         const errorDeviceNames = new Set(
           Object.entries(normalized)
@@ -256,7 +252,6 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         );
 
         if (errorDeviceNames.size === 0) {
-          setPatchPanelByDevicePort({});
           return true; // validation call succeeded
         }
 
@@ -275,7 +270,10 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
           }
 
           const indexedRows = filterPatchPanelForErrorDevicePorts(rackRows, errorDeviceNames);
-          setPatchPanelByDevicePort(indexedRows);
+          setPatchPanelByDevicePort((prev) => ({
+            ...prev,
+            ...indexedRows,
+          }));
         } catch (ideError: any) {
           if (ideError?.name !== "AbortError") {
             console.warn("[RackValidation] IDE physicalcutsheets frontend call failed", {
@@ -325,15 +323,11 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
 
             const data: unknown = await resp.json();
             const normalized = normalizeValidationFailuresPayload(data, props.rack_serial);
-            const nextDeviceFailures = normalized[firstDeviceName];
-            if (!nextDeviceFailures) {
+            if (Object.keys(normalized).length === 0) {
                 return false;
             }
 
-            setValidationFailuresByDevice((prev) => ({
-                ...prev,
-                [firstDeviceName]: nextDeviceFailures,
-            }));
+            setValidationFailuresByDevice((prev) => mergeValidationFailuresByDevice(prev, normalized));
             return true;
         } catch (e: any) {
             if (e?.name !== "AbortError") {
@@ -1009,24 +1003,18 @@ function pick(record: RowRecord, keys: string[], fallback: string = "Unknown"): 
     return fallback;
 }
 
+const LAST_VALIDATED_SECTION_TITLE = "Last Validated";
+const POWER_SECTION_TITLE = "Power Errors";
+
 function buildEmptyDeviceValidationFailures(deviceName: string): DeviceValidationFailures {
     return {
         deviceName,
         lastValidated: null,
-        tests: {
-            lldp: [],
-            optics: [],
-            interfaces: [],
-            fecBer: [],
-            fans: [],
-            power: [],
-        },
+        sections: {},
+        sectionOrder: [],
+        powerRows: [],
         counts: {
-            lldp: 0,
-            optics: 0,
-            interfaces: 0,
-            fecBer: 0,
-            fans: 0,
+            bySection: {},
             power: 0,
             nonPowerTotal: 0,
             overallTotal: 0,
@@ -1036,105 +1024,93 @@ function buildEmptyDeviceValidationFailures(deviceName: string): DeviceValidatio
 }
 
 function finalizeCounts(device: DeviceValidationFailures): DeviceValidationFailures {
-    const counts = {
-        lldp: device.tests.lldp.length,
-        optics: device.tests.optics.length,
-        interfaces: device.tests.interfaces.length,
-        fecBer: device.tests.fecBer.length,
-        fans: device.tests.fans.length,
-        power: device.tests.power.length,
-        nonPowerTotal:
-            device.tests.lldp.length +
-            device.tests.optics.length +
-            device.tests.interfaces.length +
-            device.tests.fecBer.length +
-            device.tests.fans.length,
-        overallTotal:
-            device.tests.lldp.length +
-            device.tests.optics.length +
-            device.tests.interfaces.length +
-            device.tests.fecBer.length +
-            device.tests.fans.length +
-            device.tests.power.length,
-    };
+    const bySection: Record<string, number> = {};
+    let nonPowerTotal = 0;
+
+    device.sectionOrder.forEach((sectionKey) => {
+        const count = device.sections[sectionKey]?.rows.length || 0;
+        bySection[sectionKey] = count;
+        nonPowerTotal += count;
+    });
+
+    const power = device.powerRows.length;
     return {
         ...device,
-        counts,
-        hasPsuFailure: counts.power > 0,
+        counts: {
+            bySection,
+            power,
+            nonPowerTotal,
+            overallTotal: nonPowerTotal + power,
+        },
+        hasPsuFailure: power > 0,
     };
 }
 
-function mapLldpRow(raw: unknown, deviceName: string, idx: number): LldpFailureRow {
-    const row = asRecord(raw) || {};
+function normalizeSectionKey(title: string): string {
+    return String(title || "").trim().toLowerCase();
+}
+
+function buildValidationRowKey(
+    deviceName: string,
+    sectionTitle: string,
+    idx: number,
+    row: RowRecord | null
+): string {
+    const primaryIdentifier = row
+        ? pick(
+            row,
+            [
+                "devicePort",
+                "Device Port",
+                "deviceAPort",
+                "Device A Port",
+                "fanSlot",
+                "Fan Slot",
+                "remoteInterface",
+                "Remote Interface",
+            ],
+            ""
+        )
+        : "";
+    return `${deviceName}|${normalizeSectionKey(sectionTitle)}|${idx}|${primaryIdentifier}`;
+}
+
+function mapDynamicValidationRow(
+    raw: unknown,
+    deviceName: string,
+    sectionTitle: string,
+    idx: number
+): ValidationTableRow {
+    const record = asRecord(raw);
+    if (!record) {
+        return {
+            _key: buildValidationRowKey(deviceName, sectionTitle, idx, null),
+            value: raw === null || raw === undefined ? "" : String(raw),
+        };
+    }
+
     return {
-        _key: `${deviceName}|lldp|${idx}|${pick(row, ["Device A Port", "deviceAPort"], "")}`,
-        deviceARack: pick(row, ["Device A Rack", "deviceARack"]),
-        deviceAName: pick(row, ["Device A Name", "deviceAName"], deviceName),
-        deviceAPort: pick(row, ["Device A Port", "deviceAPort"]),
-        currentDeviceBRack: pick(row, ["Device B Rack", "Current Device B Rack", "deviceBRack"]),
-        currentDeviceBName: pick(row, ["Device B Name", "Current Device B Name", "deviceBName"]),
-        currentDeviceBPort: pick(row, ["Device B Port", "Current Device B Port", "deviceBPort"]),
-        expectedDeviceBRack: pick(row, ["Expected Device B Rack", "deviceBRackExpected"]),
-        expectedDeviceBName: pick(row, ["Expected Device B Name", "deviceBNameExpected"]),
-        expectedDeviceBPort: pick(row, ["Expected Device B Port", "deviceBPortExpected"]),
-        linkStatus: pick(row, ["LLDP Status", "Link Status", "lldpStatus", "linkStatus"]),
+        ...record,
+        _key:
+            textOrEmpty(record["_key"]) ||
+            buildValidationRowKey(deviceName, sectionTitle, idx, record),
     };
 }
 
-function mapOpticRow(raw: unknown, deviceName: string, idx: number): OpticFailureRow {
-    const row = asRecord(raw) || {};
-    return {
-        _key: `${deviceName}|optics|${idx}|${pick(row, ["Device Port", "devicePort"], "")}`,
-        deviceName: pick(row, ["Device Name", "deviceName", "Device A Name", "deviceAName"], deviceName),
-        devicePort: pick(row, ["Device Port", "devicePort", "Device A Port", "deviceAPort"]),
-        txPower: pick(row, ["Tx Power", "TX Power", "txPower"]),
-        rxPower: pick(row, ["Rx Power", "RX Power", "rxPower"]),
+function setValidationSectionRows(
+    device: DeviceValidationFailures,
+    sectionTitle: string,
+    rows: ValidationTableRow[]
+): void {
+    const sectionKey = normalizeSectionKey(sectionTitle);
+    device.sections[sectionKey] = {
+        key: sectionKey,
+        title: sectionTitle,
+        rows,
     };
-}
-
-function mapInterfaceRow(raw: unknown, deviceName: string, idx: number): InterfaceFailureRow {
-    const row = asRecord(raw) || {};
-    return {
-        _key: `${deviceName}|interfaces|${idx}|${pick(row, ["Device Port", "devicePort"], "")}`,
-        deviceName: pick(row, ["Device Name", "deviceName"], deviceName),
-        devicePort: pick(row, ["Device Port", "devicePort"]),
-        issue: pick(row, ["Issue", "issue"]),
-    };
-}
-
-function mapFecBerRow(raw: unknown, deviceName: string, idx: number): FecBerFailureRow {
-    const row = asRecord(raw) || {};
-    return {
-        _key: `${deviceName}|fecber|${idx}|${pick(row, ["Device Port", "devicePort"], "")}`,
-        deviceRack: pick(row, ["Device Rack", "deviceRack"]),
-        deviceName: pick(row, ["Device Name", "deviceName"], deviceName),
-        devicePort: pick(row, ["Device Port", "devicePort"]),
-        preFecBer: pick(row, ["PRE_FEC_BER", "preFecBer"]),
-        lockStatus: pick(row, ["Lock Status", "lockStatus"]),
-        remoteDevice: pick(row, ["Remote Device", "remoteDevice"]),
-        remoteInterface: pick(row, ["Remote Interface", "remoteInterface"]),
-        errorMessage: textOrEmpty(row["Error Message"] ?? row["errorMessage"]),
-    };
-}
-
-function mapFanRow(raw: unknown, deviceName: string, idx: number): FanFailureRow {
-    const row = asRecord(raw) || {};
-    return {
-        _key: `${deviceName}|fans|${idx}|${pick(row, ["Fan Slot", "fanSlot"], "")}`,
-        deviceName: pick(row, ["Device Name", "deviceName"], deviceName),
-        fanName: textOrEmpty(row["Fan Name"] ?? row["fanName"]),
-        fanSlot: text(row["Fan Slot"] ?? row["fanSlot"]),
-        status: text(row["Status"] ?? row["status"]),
-        errorMessage: textOrEmpty(row["Error Message"] ?? row["errorMessage"]),
-    };
-}
-
-function mapPowerRow(raw: unknown, deviceName: string, idx: number): PowerFailureRow {
-    const row = asRecord(raw) || {};
-    return {
-        _key: `${deviceName}|power|${idx}`,
-        deviceName: pick(row, ["Device A Name", "Device Name", "deviceAName", "deviceName"], deviceName),
-    };
+    if (!device.sectionOrder.includes(sectionKey)) {
+        device.sectionOrder.push(sectionKey);
+    }
 }
 
 function normalizeLegacyValidationRows(rows: ValidationFailure[]): ValidationFailuresByDevice {
@@ -1147,7 +1123,8 @@ function normalizeLegacyValidationRows(rows: ValidationFailure[]): ValidationFai
         }
         const current = byDevice[deviceName];
 
-        current.tests.lldp.push({
+        const lldpRows = current.sections[normalizeSectionKey("LLDP Errors")]?.rows || [];
+        lldpRows.push({
             _key: `${deviceName}|legacy-lldp|${idx}|${textOrEmpty(row.deviceAPort)}`,
             deviceARack: text(row.deviceARack),
             deviceAName: deviceName,
@@ -1160,21 +1137,24 @@ function normalizeLegacyValidationRows(rows: ValidationFailure[]): ValidationFai
             expectedDeviceBPort: text(row.deviceBPortExpected),
             linkStatus: text(row.lldpStatus || row.linkStatus),
         });
+        setValidationSectionRows(current, "LLDP Errors", lldpRows);
 
         const hasOptics = textOrEmpty(row.txPower) !== "" || textOrEmpty(row.rxPower) !== "";
         if (hasOptics) {
-            current.tests.optics.push({
+            const opticRows = current.sections[normalizeSectionKey("Optic Errors")]?.rows || [];
+            opticRows.push({
                 _key: `${deviceName}|legacy-optics|${idx}|${textOrEmpty(row.deviceAPort)}`,
                 deviceName,
                 devicePort: text(row.deviceAPort),
                 txPower: text(row.txPower),
                 rxPower: text(row.rxPower),
             });
+            setValidationSectionRows(current, "Optic Errors", opticRows);
         }
 
         const psuFailure = textOrEmpty(row.psuFailure);
         if (psuFailure !== "" && psuFailure.toLowerCase() !== "null") {
-            current.tests.power.push({
+            current.powerRows.push({
                 _key: `${deviceName}|legacy-power|${idx}`,
                 deviceName,
             });
@@ -1219,34 +1199,47 @@ function normalizeValidationFailuresPayload(
         }
 
         const current = buildEmptyDeviceValidationFailures(deviceName);
-        const lastValidatedValue = resultsRecord["Last Validated"];
+        const lastValidatedValue = resultsRecord[LAST_VALIDATED_SECTION_TITLE];
         current.lastValidated =
             lastValidatedValue === null || lastValidatedValue === undefined
                 ? null
                 : String(lastValidatedValue).trim() || null;
-        current.tests.lldp = asArray(resultsRecord["LLDP Errors"]).map((row, idx) =>
-            mapLldpRow(row, deviceName, idx)
-        );
-        current.tests.optics = asArray(resultsRecord["Optic Errors"]).map((row, idx) =>
-            mapOpticRow(row, deviceName, idx)
-        );
-        current.tests.interfaces = asArray(resultsRecord["Interface Errors"]).map((row, idx) =>
-            mapInterfaceRow(row, deviceName, idx)
-        );
-        current.tests.fecBer = asArray(resultsRecord["FEC_BER Errors"]).map((row, idx) =>
-            mapFecBerRow(row, deviceName, idx)
-        );
-        current.tests.fans = asArray(resultsRecord["Fan Errors"]).map((row, idx) =>
-            mapFanRow(row, deviceName, idx)
-        );
-        current.tests.power = asArray(resultsRecord["Power Errors"]).map((row, idx) =>
-            mapPowerRow(row, deviceName, idx)
-        );
+
+        Object.entries(resultsRecord).forEach(([sectionTitle, rawRows]) => {
+            if (sectionTitle === LAST_VALIDATED_SECTION_TITLE) {
+                return;
+            }
+
+            const rows = asArray(rawRows).map((row, idx) =>
+                mapDynamicValidationRow(row, deviceName, sectionTitle, idx)
+            );
+
+            if (normalizeSectionKey(sectionTitle) === normalizeSectionKey(POWER_SECTION_TITLE)) {
+                current.powerRows = rows;
+                return;
+            }
+
+            setValidationSectionRows(current, sectionTitle, rows);
+        });
 
         byDevice[deviceName] = finalizeCounts(current);
     });
 
     return byDevice;
+}
+
+function mergeValidationFailuresByDevice(
+    previous: ValidationFailuresByDevice,
+    incoming: ValidationFailuresByDevice
+): ValidationFailuresByDevice {
+    if (Object.keys(incoming).length === 0) {
+        return previous;
+    }
+
+    return {
+        ...previous,
+        ...incoming,
+    };
 }
 
 function normalizeDeviceKey(value: string | null | undefined): string {

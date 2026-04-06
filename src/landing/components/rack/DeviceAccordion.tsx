@@ -11,16 +11,12 @@ import {
   DeviceValidationFailures,
   PatchPanelByDevicePort,
   PatchPanelRow,
+  ValidationSection,
   ValidationFailuresByDevice,
+  ValidationTableRow,
 } from "./types";
 import { VALIDATION_TABLE_ACCESSIBILITY } from "./constants";
-import {
-  FAN_FAILURE_COLUMNS,
-  FEC_BER_FAILURE_COLUMNS,
-  INTERFACE_FAILURE_COLUMNS,
-  LLDP_FAILURE_COLUMNS,
-  OPTIC_FAILURE_COLUMNS,
-} from "./columns";
+import { VALIDATION_COLUMN_ORDER_BY_SECTION } from "./columnOrder";
 import { booleanStatusTemplate, errorMessageClampTemplate, lldpStatusTemplate, patchPanelMatrixTemplate, psuStatusTemplate } from "./templates";
 import { formatStatusLabel, getStatusClass, isDeviceStatusCompleted } from "./utils";
 
@@ -109,37 +105,50 @@ function toDevicePortKey(deviceName: string | undefined | null, devicePort: stri
   return `${normalizeDeviceName(deviceName)}|${normalizeDeviceName(devicePort)}`;
 }
 
-type TestSectionConfig = {
-  id: "lldp" | "optics" | "interfaces" | "fecBer" | "fans";
-  title: string;
-  columns: any[];
-};
+function normalizeSectionTitle(value: string | undefined | null): string {
+  return String(value || "").trim().toLowerCase();
+}
 
-const TEST_SECTIONS: TestSectionConfig[] = [
-  { id: "lldp", title: "LLDP Errors", columns: LLDP_FAILURE_COLUMNS },
-  { id: "optics", title: "Optic Errors", columns: OPTIC_FAILURE_COLUMNS },
-  { id: "interfaces", title: "Interface Errors", columns: INTERFACE_FAILURE_COLUMNS },
-  { id: "fecBer", title: "FEC_BER Errors", columns: FEC_BER_FAILURE_COLUMNS },
-  { id: "fans", title: "Fan Errors", columns: FAN_FAILURE_COLUMNS },
-];
+function isLldpSection(sectionTitle: string): boolean {
+  return normalizeSectionTitle(sectionTitle) === "lldp errors";
+}
+
+function isFanSection(sectionTitle: string): boolean {
+  return normalizeSectionTitle(sectionTitle) === "fan errors";
+}
+
+function isFecBerSection(sectionTitle: string): boolean {
+  return normalizeSectionTitle(sectionTitle) === "fec_ber errors";
+}
+
+function getChipLabel(sectionTitle: string): string {
+  const normalized = normalizeSectionTitle(sectionTitle);
+  if (normalized === "lldp errors") return "LLDP";
+  if (normalized === "optic errors") return "OPT";
+  if (normalized === "interface errors") return "INT";
+  if (normalized === "fec_ber errors") return "FEC";
+  if (normalized === "fan errors") return "FAN";
+  return sectionTitle.replace(/\s+errors$/i, "").slice(0, 4).toUpperCase();
+}
+
+function getChipClass(sectionTitle: string): string {
+  const normalized = normalizeSectionTitle(sectionTitle);
+  if (normalized === "lldp errors") return "chip-lldp";
+  if (normalized === "optic errors") return "chip-opt";
+  if (normalized === "interface errors") return "chip-int";
+  if (normalized === "fec_ber errors") return "chip-fec";
+  if (normalized === "fan errors") return "chip-fan";
+  return "";
+}
 
 const EMPTY_DEVICE_FAILURES: DeviceValidationFailures = {
   deviceName: "",
   lastValidated: null,
-  tests: {
-    lldp: [],
-    optics: [],
-    interfaces: [],
-    fecBer: [],
-    fans: [],
-    power: [],
-  },
+  sections: {},
+  sectionOrder: [],
+  powerRows: [],
   counts: {
-    lldp: 0,
-    optics: 0,
-    interfaces: 0,
-    fecBer: 0,
-    fans: 0,
+    bySection: {},
     power: 0,
     nonPowerTotal: 0,
     overallTotal: 0,
@@ -148,23 +157,6 @@ const EMPTY_DEVICE_FAILURES: DeviceValidationFailures = {
 };
 
 
-function getSectionColumns(section: TestSectionConfig, sectionRows: any[]): any[] {
-  if (section.id !== "fecBer") {
-    return [...section.columns];
-  }
-
-  const hasErrorMessage = sectionRows.some((row) => {
-    const errorMessage = row?.errorMessage;
-    return typeof errorMessage === "string" && errorMessage.trim() !== "";
-  });
-
-  if (hasErrorMessage) {
-    return [...section.columns];
-  }
-
-  return section.columns.filter((column) => column.id !== "errorMessage");
-}
-
 function buildDeviceFailuresFallback(deviceName: string): DeviceValidationFailures {
   return {
     ...EMPTY_DEVICE_FAILURES,
@@ -172,24 +164,52 @@ function buildDeviceFailuresFallback(deviceName: string): DeviceValidationFailur
   };
 }
 
-function getRowsForSection(
-    deviceFailures: DeviceValidationFailures,
-    section: TestSectionConfig["id"]
-): any[] {
-  switch (section) {
-    case "lldp":
-      return deviceFailures.tests.lldp;
-    case "optics":
-      return deviceFailures.tests.optics;
-    case "interfaces":
-      return deviceFailures.tests.interfaces;
-    case "fecBer":
-      return deviceFailures.tests.fecBer;
-    case "fans":
-      return deviceFailures.tests.fans;
-    default:
-      return [];
-  }
+function getColumnTemplate(field: string): string | undefined {
+  if (field === "linkStatus") return "lldpStatusTemplate";
+  if (field === "status" || field === "lockStatus") return "booleanStatusTemplate";
+  if (field === "patchPanelMatrix") return "patchPanelMatrixTemplate";
+  if (field === "errorMessage") return "errorMessageClampTemplate";
+  return undefined;
+}
+
+function getSectionColumns(sectionTitle: string, sectionRows: ValidationTableRow[]): any[] {
+  const fieldOrder: string[] = [];
+  const seen = new Set<string>();
+
+  sectionRows.forEach((row) => {
+    Object.keys(row).forEach((key) => {
+      if (key === "_key" || seen.has(key)) return;
+      seen.add(key);
+      fieldOrder.push(key);
+    });
+  });
+
+  const shouldHideErrorMessage =
+      isFecBerSection(sectionTitle) &&
+      !sectionRows.some((row) => {
+        const errorMessage = row?.errorMessage;
+        return typeof errorMessage === "string" && errorMessage.trim() !== "";
+      });
+
+  const configuredOrder = VALIDATION_COLUMN_ORDER_BY_SECTION[sectionTitle] || [];
+  const orderedFields = [
+    ...configuredOrder.filter((field) => fieldOrder.includes(field)),
+    ...fieldOrder.filter((field) => !configuredOrder.includes(field)),
+  ];
+
+  return orderedFields
+      .filter((field) => !(shouldHideErrorMessage && field === "errorMessage"))
+      .map((field) => {
+        const template = getColumnTemplate(field);
+        return {
+          headerText: field,
+          field,
+          id: field,
+          resizable: "enabled",
+          sortable: "enabled",
+          ...(template ? { template } : {}),
+        };
+      });
 }
 
 function renderPatchPanelValue(rows: PatchPanelRow[]): string {
@@ -209,16 +229,24 @@ function renderPatchPanelValue(rows: PatchPanelRow[]): string {
     .join("\n\n");
 }
 
-function addPatchPanelToSectionRows(sectionId: TestSectionConfig["id"], rows: any[], patchPanelByDevicePort: PatchPanelByDevicePort): any[] {
-  if (sectionId === "fans") {
+function addPatchPanelToSectionRows(
+    sectionTitle: string,
+    rows: ValidationTableRow[],
+    patchPanelByDevicePort: PatchPanelByDevicePort
+): ValidationTableRow[] {
+  if (isFanSection(sectionTitle)) {
     return rows;
   }
 
   return rows.map((row) => {
     const deviceName =
-      sectionId === "lldp" ? row.deviceAName : row.deviceName;
+      isLldpSection(sectionTitle)
+          ? String(row.deviceAName ?? "")
+          : String(row.deviceName ?? "");
     const devicePort =
-      sectionId === "lldp" ? row.deviceAPort : row.devicePort;
+      isLldpSection(sectionTitle)
+          ? String(row.deviceAPort ?? "")
+          : String(row.devicePort ?? "");
     const key = toDevicePortKey(deviceName, devicePort);
     const patchPanelRows = patchPanelByDevicePort[key] || [];
     return {
@@ -253,47 +281,46 @@ const DeviceAccordion = (props: Props) => {
   const filteredFailuresByDevice = useMemo(() => {
     const filtered: ValidationFailuresByDevice = {};
     Object.entries(props.validationFailuresByDevice).forEach(([deviceName, deviceFailures]) => {
-      const filteredLldp = props.hideUnsupported
-          ? deviceFailures.tests.lldp.filter(
-              (row) => String(row.linkStatus).toUpperCase() !== "UNSUPPORTED"
-          )
-          : deviceFailures.tests.lldp;
+      const sections: Record<string, ValidationSection> = {};
+      const countsBySection: Record<string, number> = {};
+      let nonPowerTotal = 0;
 
-      const counts = {
-        lldp: filteredLldp.length,
-        optics: deviceFailures.tests.optics.length,
-        interfaces: deviceFailures.tests.interfaces.length,
-        fecBer: deviceFailures.tests.fecBer.length,
-        fans: deviceFailures.tests.fans.length,
-        power: deviceFailures.tests.power.length,
-        nonPowerTotal:
-            filteredLldp.length +
-            deviceFailures.tests.optics.length +
-            deviceFailures.tests.interfaces.length +
-            deviceFailures.tests.fecBer.length +
-            deviceFailures.tests.fans.length,
-        overallTotal:
-            filteredLldp.length +
-            deviceFailures.tests.optics.length +
-            deviceFailures.tests.interfaces.length +
-            deviceFailures.tests.fecBer.length +
-            deviceFailures.tests.fans.length +
-            deviceFailures.tests.power.length,
-      };
+      deviceFailures.sectionOrder.forEach((sectionKey) => {
+        const section = deviceFailures.sections[sectionKey];
+        if (!section) return;
+
+        const filteredRows = props.hideUnsupported && isLldpSection(section.title)
+            ? section.rows.filter((row) => String(row.linkStatus).toUpperCase() !== "UNSUPPORTED")
+            : section.rows;
+        const enrichedRows = addPatchPanelToSectionRows(
+            section.title,
+            filteredRows,
+            props.patchPanelByDevicePort
+        );
+
+        sections[sectionKey] = {
+          ...section,
+          rows: enrichedRows,
+        };
+        countsBySection[sectionKey] = enrichedRows.length;
+        nonPowerTotal += enrichedRows.length;
+      });
 
       filtered[deviceName] = {
         ...deviceFailures,
-        tests: {
-          ...deviceFailures.tests,
-          lldp: filteredLldp,
+        sections,
+        counts: {
+          bySection: countsBySection,
+          power: deviceFailures.powerRows.length,
+          nonPowerTotal,
+          overallTotal: nonPowerTotal + deviceFailures.powerRows.length,
         },
-        counts,
-        hasPsuFailure: deviceFailures.tests.power.length > 0,
+        hasPsuFailure: deviceFailures.powerRows.length > 0,
       };
     });
 
     return filtered;
-  }, [props.validationFailuresByDevice, props.hideUnsupported]);
+  }, [props.validationFailuresByDevice, props.hideUnsupported, props.patchPanelByDevicePort]);
 
   const selectTemplate = (context: any, disabled: boolean = false, disabledReason: string = "") => {
     const row = (context?.item && context.item.data) || {};
@@ -416,13 +443,19 @@ const DeviceAccordion = (props: Props) => {
   }, [filteredFailuresByDevice]);
 
   const renderErrorCount = (deviceFailures: DeviceValidationFailures) => {
-    const chips = [
-      { label: "LLDP", count: deviceFailures.counts.lldp },
-      { label: "OPT", count: deviceFailures.counts.optics },
-      { label: "INT", count: deviceFailures.counts.interfaces },
-      { label: "FEC", count: deviceFailures.counts.fecBer },
-      { label: "FAN", count: deviceFailures.counts.fans },
-    ].filter((entry) => entry.count > 0);
+    const chips = deviceFailures.sectionOrder
+        .map((sectionKey) => {
+          const section = deviceFailures.sections[sectionKey];
+          if (!section) return null;
+          return {
+            label: getChipLabel(section.title),
+            count: deviceFailures.counts.bySection[sectionKey] || 0,
+            typeClass: getChipClass(section.title),
+          };
+        })
+        .filter((entry): entry is { label: string; count: number; typeClass: string } =>
+            Boolean(entry && entry.count > 0)
+        );
 
     if (chips.length === 0) {
       const zeroClass = `device-accordion-failure-count ${deviceFailures.hasPsuFailure ? "danger" : "success"}`;
@@ -432,16 +465,10 @@ const DeviceAccordion = (props: Props) => {
     return (
         <span className="device-accordion-error-breakdown">
          {chips.map((chip) => {
-           const typeClass =
-               chip.label === "LLDP" ? "chip-lldp" :
-                   chip.label === "OPT"  ? "chip-opt"  :
-                       chip.label === "INT"  ? "chip-int"  :
-                           chip.label === "FEC"  ? "chip-fec"  :
-                               chip.label === "FAN"  ? "chip-fan"  : "";
            return (
                <span
                    key={chip.label}
-                   className={`device-accordion-error-chip ${typeClass}`}
+                   className={`device-accordion-error-chip ${chip.typeClass}`}
                    title={`${chip.label}: ${chip.count}`}
                >
                 {chip.label}:{chip.count}
@@ -578,6 +605,9 @@ const DeviceAccordion = (props: Props) => {
                 {sortedDevices.map((device, idx) => {
                   const deviceFailures =
                       filteredFailuresByDevice[device.deviceName] || buildDeviceFailuresFallback(device.deviceName);
+                  const visibleSections = deviceFailures.sectionOrder
+                      .map((sectionKey) => deviceFailures.sections[sectionKey])
+                      .filter((section): section is ValidationSection => Boolean(section && section.rows.length > 0));
                   const hasDeviceFailures = deviceFailures.counts.nonPowerTotal > 0;
                   const psuStatus = getPsuStatusLabel(device.jobStatus, deviceFailures.hasPsuFailure);
                   const isExpanded = expandedKeys.has(device._key);
@@ -652,27 +682,21 @@ const DeviceAccordion = (props: Props) => {
                         {hasDeviceFailures ? (
                             <div style={{ padding: "8px 24px", background: "#fff" }}>
                               <oj-accordion id={`testAccordion-${idx}`} multiple={true}>
-                                {TEST_SECTIONS.map((section) => {
-                                  const sectionRows = addPatchPanelToSectionRows(
-                                    section.id,
-                                    getRowsForSection(deviceFailures, section.id),
-                                    props.patchPanelByDevicePort
-                                  );
-                                  if (!sectionRows.length) return null;
-                                  const sectionColumns = getSectionColumns(section, sectionRows);
-                                  const sectionDataProvider = new ArrayDataProvider(sectionRows, {
+                                {visibleSections.map((section) => {
+                                  const sectionColumns = getSectionColumns(section.title, section.rows);
+                                  const sectionDataProvider = new ArrayDataProvider(section.rows, {
                                     keyAttributes: "_key",
                                   });
 
                                   return (
                                       <oj-collapsible
-                                          id={`device-${idx}-${section.id}`}
-                                          key={`${device.deviceName}-${section.id}`}
+                                          id={`device-${idx}-${section.key}`}
+                                          key={`${device.deviceName}-${section.key}`}
                                           expanded={false}
                                       >
                                         <h4 slot="header" className="test-section-header">
                                           <span>{section.title}</span>
-                                          <span className="test-section-count">{sectionRows.length}</span>
+                                          <span className="test-section-count">{section.rows.length}</span>
                                         </h4>
                                         <div className="oj-flex">
                                           <div className="oj-flex-item rack-panel table-wrapper-full">
@@ -683,7 +707,7 @@ const DeviceAccordion = (props: Props) => {
                                                 layout="contents"
                                                 vertical-grid-visible="enabled"
                                                 aria-label={`${section.title} Action Items`}
-                                                id={`ValidationFailureItemsTable-${idx}-${section.id}`}
+                                                id={`ValidationFailureItemsTable-${idx}-${section.key}`}
                                                 accessibility={ACC}
                                                 scroll-policy="loadMoreOnScroll"
                                                 scroll-policy-options='{"fetchSize": 10}'
