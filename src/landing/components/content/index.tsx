@@ -122,7 +122,7 @@ const Content = (props: Props) => {
     if (ctx.block) setSelectedBlock(ctx.block);
     if (ctx.rack) setSelectedRack(ctx.rack);
     if (ctx.project) setSelectedProject(ctx.project);
-    setSelectedIsGpuRack(Boolean(ctx.isGpuRack));
+    if (typeof ctx.isGpuRack === "boolean") setSelectedIsGpuRack(Boolean(ctx.isGpuRack));
     if (typeof ctx.ticket === "string") setSelectedTicket(ctx.ticket);
     if (typeof ctx.resolveEnabled === "boolean") setSelectedResolveEnabled(Boolean(ctx.resolveEnabled));
     if (typeof ctx.resolveDisabledReason === "string") setSelectedResolveDisabledReason(String(ctx.resolveDisabledReason || ""));

@@ -122,7 +122,7 @@ const Rack = (props: RackProps) => {
         .map((d) => d._key);
     setExternalExpandedKeys(new Set(keys));
     setExternalExpandedKeysNonce((n) => n + 1);
-  }, [hideUnsupported, validationFailuresByDevice, deviceStatuses]);
+  }, [hideUnsupported, validationFailuresByDevice, deviceStatuses, props.isGpuRack]);
 
   const handleCollapseAll = useCallback(() => {
     setExternalExpandedKeys(new Set());
@@ -240,6 +240,7 @@ const Rack = (props: RackProps) => {
               block={props.block}
               rack={props.rack}
               rack_serial={props.rack_serial}
+              isGpuRack={props.isGpuRack}
               region={props.region}
               validationFailuresByDevice={validationFailuresByDevice}
               patchPanelByDevicePort={patchPanelByDevicePort}

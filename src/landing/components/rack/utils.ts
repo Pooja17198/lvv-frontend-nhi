@@ -4,6 +4,13 @@ export function anyJobInProgress(data: DeviceStatus[]): boolean {
   return data.some((item) => (item.jobStatus || "").includes("IN_PROGRESS"));
 }
 
+export function isGpuComputeDevice(
+  deviceName: string,
+  isGpuRack?: boolean,
+): boolean {
+  return Boolean(isGpuRack) && deviceName.toLowerCase().includes("compute");
+}
+
 export function getStatusClass(status: string): string {
   const s = (status || "").toUpperCase();
   if (s === "IN_PROGRESS") return "status-in-progress";

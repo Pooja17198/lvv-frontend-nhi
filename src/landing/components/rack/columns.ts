@@ -140,3 +140,9 @@ export const FAN_FAILURE_COLUMNS: any[] = [
     ...DEFAULT_COLUMN_SETTINGS,
   },
 ];
+
+// Temporary placeholder columns to be removed when the actual names are confirmed 
+export const GPU_COMPUTE_DEVICE_COLUMNS: any[] = [
+  { headerText: "GPU Placeholder 1", field: "gpuPlaceholder1", id: "gpuPlaceholder1", ...DEFAULT_COLUMN_SETTINGS },
+  { headerText: "GPU Placeholder 2", field: "gpuPlaceholder2", id: "gpuPlaceholder2", ...DEFAULT_COLUMN_SETTINGS },
+];

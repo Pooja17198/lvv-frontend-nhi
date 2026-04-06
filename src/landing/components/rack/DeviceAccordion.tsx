@@ -18,7 +18,7 @@ import {
 import { VALIDATION_TABLE_ACCESSIBILITY } from "./constants";
 import { VALIDATION_COLUMN_ORDER_BY_SECTION } from "./columnOrder";
 import { booleanStatusTemplate, errorMessageClampTemplate, lldpStatusTemplate, patchPanelMatrixTemplate, psuStatusTemplate } from "./templates";
-import { formatStatusLabel, getStatusClass, isDeviceStatusCompleted } from "./utils";
+import { formatStatusLabel, getStatusClass, isDeviceStatusCompleted, isGpuComputeDevice } from "./utils";
 
 type ValidationAgeColor = "green" | "orange" | "red";
 
@@ -82,6 +82,7 @@ type Props = {
   block: string;
   rack: string;
   rack_serial: string;
+  isGpuRack?: boolean;
   region: string;
   validationFailuresByDevice: ValidationFailuresByDevice;
   patchPanelByDevicePort: PatchPanelByDevicePort;
@@ -438,11 +439,14 @@ const DeviceAccordion = (props: Props) => {
   const summaryCounts = useMemo(() => {
     const values = Object.values(filteredFailuresByDevice);
     const linkFailures = values.reduce((sum, item) => sum + item.counts.nonPowerTotal, 0);
-    const powerFailures = values.filter((item) => item.hasPsuFailure).length;
+    const powerFailures = values.filter(
+        (item) => !isGpuComputeDevice(item.deviceName, props.isGpuRack) && item.hasPsuFailure
+    ).length;
     return { linkFailures, powerFailures };
-  }, [filteredFailuresByDevice]);
+  }, [filteredFailuresByDevice, props.isGpuRack]);
 
   const renderErrorCount = (deviceFailures: DeviceValidationFailures) => {
+    const isGpuCompute = isGpuComputeDevice(deviceFailures.deviceName, props.isGpuRack);
     const chips = deviceFailures.sectionOrder
         .map((sectionKey) => {
           const section = deviceFailures.sections[sectionKey];
@@ -458,7 +462,11 @@ const DeviceAccordion = (props: Props) => {
         );
 
     if (chips.length === 0) {
-      const zeroClass = `device-accordion-failure-count ${deviceFailures.hasPsuFailure ? "danger" : "success"}`;
+      const zeroClass = `device-accordion-failure-count ${
+          !isGpuCompute && deviceFailures.hasPsuFailure
+              ? "danger"
+              : "success"
+      }`;
       return <span className={zeroClass}>0</span>;
     }
 
@@ -608,8 +616,11 @@ const DeviceAccordion = (props: Props) => {
                   const visibleSections = deviceFailures.sectionOrder
                       .map((sectionKey) => deviceFailures.sections[sectionKey])
                       .filter((section): section is ValidationSection => Boolean(section && section.rows.length > 0));
+                  const isGpuCompute = isGpuComputeDevice(device.deviceName, props.isGpuRack);
                   const hasDeviceFailures = deviceFailures.counts.nonPowerTotal > 0;
-                  const psuStatus = getPsuStatusLabel(device.jobStatus, deviceFailures.hasPsuFailure);
+                  const psuStatus = isGpuCompute
+                      ? "-"
+                      : getPsuStatusLabel(device.jobStatus, deviceFailures.hasPsuFailure);
                   const isExpanded = expandedKeys.has(device._key);
                   const isValidationEligible = props.eligibleDeviceNames.has(device.deviceName);
                   const statusToRender = isValidationEligible ? device.jobStatus : "NOT_ELIGIBLE";
