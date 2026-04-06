@@ -14,6 +14,7 @@ import { IDE_API, LVV_API, POLLING } from "../constants";
 import { fetchWithRetry, createCsrfHeaders } from "../api";
 import { anyJobInProgress, parseContentDispositionFilename } from "../utils";
 import { emitMetric, TELEMETRY_METRICS } from "../../telemetry/api";
+import { ENABLE_PERIODIC_VALIDATION_REFRESH } from "../../../config/featureFlags";
 
 const VALIDATION_SERVICE_REFRESH_INTERVAL_MS = 10_000;
 
@@ -350,6 +351,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
     ]);
 
     useEffect(() => {
+        if (!ENABLE_PERIODIC_VALIDATION_REFRESH) return;
         if (!rackContextReady) return;
         if (deviceStatuses.length === 0) return;
 
