@@ -34,6 +34,7 @@ type RackMetadata = {
   building: string;
   block: string;
   rack: string;
+  isGpuRack?: boolean;
   project?: string;
   ticket: string;
   rackSerialNumber?: string;
@@ -42,7 +43,7 @@ type RackMetadata = {
 }
 
 function decodeRackUrlContext(): Partial<RackMetadata> {
-  // URL format: /rack/{rackSerialNumber}?region=...&project=...&building=...&block=...&rack=...&ticket=...&resolveEnabled=...&resolveDisabledReason=...
+  // URL format: /rack/{rackSerialNumber}?region=...&project=...&building=...&block=...&rack=...&isGpuRack=...&ticket=...&resolveEnabled=...&resolveDisabledReason=...
   const match = window.location.pathname.match(/^\/rack\/([^/]+)\/?$/);
   if (!match) return {};
   const [, id] = match;
@@ -52,6 +53,7 @@ function decodeRackUrlContext(): Partial<RackMetadata> {
   const block = params.get("block") ? decodeURIComponent(params.get("block") as string) : "";
   const rack = params.get("rack") ? decodeURIComponent(params.get("rack") as string) : "";
   const project = params.get("project") ? decodeURIComponent(params.get("project") as string) : "";
+  const isGpuRack = params.get("isGpuRack") === "true";
   const ticketParam = params.get("ticket");
   const ticket = ticketParam && ticketParam.trim() !== "" ? decodeURIComponent(ticketParam) : undefined;
 
@@ -63,6 +65,7 @@ function decodeRackUrlContext(): Partial<RackMetadata> {
     building,
     block,
     rack,
+    isGpuRack,
   };
 
   if (ticket) {
@@ -88,6 +91,7 @@ const Content = (props: Props) => {
   const [selectedBuilding, setSelectedBuilding] = useState(INIT_DEFAULT)
   const [selectedBlock, setSelectedBlock] = useState(INIT_DEFAULT)
   const [selectedProject, setSelectedProject] = useState(INIT_DEFAULT)
+  const [selectedIsGpuRack, setSelectedIsGpuRack] = useState<boolean>(false);
   const [selectedRackSerialNumber, setSelectedRackSerialNumber] = useState(INIT_DEFAULT)
   const [selectedVendor, setSelectedVendor] = useState(INIT_DEFAULT);
   const [selectedResolveEnabled, setSelectedResolveEnabled] = useState<boolean>(false);
@@ -118,6 +122,7 @@ const Content = (props: Props) => {
     if (ctx.block) setSelectedBlock(ctx.block);
     if (ctx.rack) setSelectedRack(ctx.rack);
     if (ctx.project) setSelectedProject(ctx.project);
+    setSelectedIsGpuRack(Boolean(ctx.isGpuRack));
     if (typeof ctx.ticket === "string") setSelectedTicket(ctx.ticket);
     if (typeof ctx.resolveEnabled === "boolean") setSelectedResolveEnabled(Boolean(ctx.resolveEnabled));
     if (typeof ctx.resolveDisabledReason === "string") setSelectedResolveDisabledReason(String(ctx.resolveDisabledReason || ""));
@@ -132,6 +137,7 @@ const Content = (props: Props) => {
     setSelectedBuilding(value.building);
     setSelectedBlock(value.block);
     setSelectedProject(value.project);
+    setSelectedIsGpuRack(Boolean(value.isGpuRack));
     setSelectedTicket(value.ticket);
     setSelectedResolveEnabled(value.resolveEnabled !== false);
     setSelectedResolveDisabledReason(String(value.resolveDisabledReason || ""));
@@ -161,6 +167,7 @@ const Content = (props: Props) => {
         building: String(selectedBuilding || ""),
         block: String(selectedBlock || ""),
         rack: String(selectedRack || ""),
+        isGpuRack: String(Boolean(selectedIsGpuRack)),
       };
       if (hasTicket) {
         queryObj.ticket = String(selectedTicket);
@@ -195,6 +202,7 @@ const Content = (props: Props) => {
                 building={selectedBuilding}
                 block={selectedBlock}
                 rack={selectedRack}
+                isGpuRack={selectedIsGpuRack}
                 project={selectedProject}
                 ticket={selectedTicket}
                 rack_serial={selectedRackSerialNumber}

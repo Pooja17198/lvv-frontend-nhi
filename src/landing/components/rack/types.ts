@@ -81,6 +81,7 @@ export type RackProps = {
   building: string;
   block: string;
   rack: string;
+  isGpuRack?: boolean;
   project?: string;
   ticket: string;
   rack_serial: string;

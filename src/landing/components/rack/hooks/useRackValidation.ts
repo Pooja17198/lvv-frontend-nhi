@@ -14,7 +14,7 @@ import { IDE_API, LVV_API, POLLING } from "../constants";
 import { fetchWithRetry, createCsrfHeaders } from "../api";
 import { anyJobInProgress, parseContentDispositionFilename } from "../utils";
 import { emitMetric, TELEMETRY_METRICS } from "../../telemetry/api";
-import { ENABLE_PERIODIC_VALIDATION_REFRESH } from "../../../config/featureFlags";
+import { isPeriodicValidationRefreshEnabledForRack } from "../../../config/configUtils";
 
 const VALIDATION_SERVICE_REFRESH_INTERVAL_MS = 10_000;
 
@@ -93,6 +93,15 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         [deviceStatuses]
     );
     const eligibleDeviceNameSet = useMemo(() => new Set(eligibleDeviceNames), [eligibleDeviceNames]);
+    const periodicValidationRefreshEnabled = useMemo(
+        () =>
+            isPeriodicValidationRefreshEnabledForRack({
+                region: props.region,
+                building: props.building,
+                isGpuRack: props.isGpuRack,
+            }),
+        [props.region, props.building, props.isGpuRack]
+    );
 
     // Only run effects when rack context is complete (prevents running on Home page)
     const rackContextReady = Boolean(props.region && props.rack_serial && props.rack && props.building);
@@ -351,7 +360,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
     ]);
 
     useEffect(() => {
-        if (!ENABLE_PERIODIC_VALIDATION_REFRESH) return;
+        if (!periodicValidationRefreshEnabled) return;
         if (!rackContextReady) return;
         if (deviceStatuses.length === 0) return;
 
@@ -364,7 +373,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         return () => {
             window.clearInterval(intervalId);
         };
-    }, [rackContextReady, deviceStatuses, refreshValidationServiceResultsForFirstDevice]);
+    }, [periodicValidationRefreshEnabled, rackContextReady, deviceStatuses, refreshValidationServiceResultsForFirstDevice]);
 
     // initial/sequential load: devices then failures
     // Avoid "cancelled" flag; snapshot rack key and controller at effect start
