@@ -2,8 +2,10 @@ import { PERIODIC_VALIDATION_REFRESH_CONFIG } from "./featureFlags";
 
 export type PeriodicValidationRefreshConfig = {
   enabled: boolean;
-  regions: string[];
-  buildings: string[];
+  regions: Array<{
+    name: string;
+    buildings?: string[];
+  }>;
   rackTypes: {
     gpuRack: boolean;
     allRacks: boolean;
@@ -20,18 +22,39 @@ function normalizeConfigValue(value: string | null | undefined): string {
   return String(value || "").trim().toLowerCase();
 }
 
-function matchesConfiguredList(configuredValues: string[], candidate: string | null | undefined): boolean {
-  if (configuredValues.length === 0) {
+function matchesRegionAndBuilding(
+    configuredRegions: PeriodicValidationRefreshConfig["regions"],
+    region: string | null | undefined,
+    building: string | null | undefined
+): boolean {
+  if (configuredRegions.length === 0) {
     return true;
   }
 
-  const normalizedCandidate = normalizeConfigValue(candidate);
-  if (!normalizedCandidate) {
+  const normalizedRegion = normalizeConfigValue(region);
+  if (!normalizedRegion) {
     return false;
   }
 
-  return configuredValues.some((configuredValue) =>
-      normalizeConfigValue(configuredValue) === normalizedCandidate
+  const matchedRegion = configuredRegions.find(
+      (configuredRegion) => normalizeConfigValue(configuredRegion.name) === normalizedRegion
+  );
+  if (!matchedRegion) {
+    return false;
+  }
+
+  const configuredBuildings = matchedRegion.buildings || [];
+  if (configuredBuildings.length === 0) {
+    return true;
+  }
+
+  const normalizedBuilding = normalizeConfigValue(building);
+  if (!normalizedBuilding) {
+    return false;
+  }
+
+  return configuredBuildings.some(
+      (configuredBuilding) => normalizeConfigValue(configuredBuilding) === normalizedBuilding
   );
 }
 
@@ -42,11 +65,11 @@ export function isPeriodicValidationRefreshEnabledForRack(
     return false;
   }
 
-  if (!matchesConfiguredList(PERIODIC_VALIDATION_REFRESH_CONFIG.regions, context.region)) {
-    return false;
-  }
-
-  if (!matchesConfiguredList(PERIODIC_VALIDATION_REFRESH_CONFIG.buildings, context.building)) {
+  if (!matchesRegionAndBuilding(
+      PERIODIC_VALIDATION_REFRESH_CONFIG.regions,
+      context.region,
+      context.building
+  )) {
     return false;
   }
 

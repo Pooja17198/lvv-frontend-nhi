@@ -5,11 +5,17 @@ import { PeriodicValidationRefreshConfig } from "./configUtils";
 export const ENABLE_NETWORK_MONITORING = true;
 
 export const PERIODIC_VALIDATION_REFRESH_CONFIG: PeriodicValidationRefreshConfig = {
-  enabled: true,
-  // Add more region names here to enable periodic refresh in additional regions.
+  enabled: false,
+  // Leave regions empty to enable periodic refresh in all regions.
+  // If regions are provided, only those regions are enabled.
+  // Within a region, leave buildings empty to enable all buildings in that region.
+  // If buildings are provided, only those buildings are enabled for that region.
   regions: [],
-  // Add more building names here to enable periodic refresh in additional buildings.
-  buildings: [],
+  // Example:
+  // regions: [
+  //   { name: "us-phoenix-1" },
+  //   { name: "us-ashburn-1", buildings: ["iad10", "iad58"] },
+  // ],
   // For now periodic refresh is enabled only for GPU racks.
   rackTypes: {
     gpuRack: true,
