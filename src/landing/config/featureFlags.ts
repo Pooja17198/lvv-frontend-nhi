@@ -21,4 +21,9 @@ export const PERIODIC_VALIDATION_REFRESH_CONFIG: PeriodicValidationRefreshConfig
     gpuRack: true,
     allRacks: false,
   },
+  // Choose which device types should be included in periodic validation refresh calls.
+  deviceTypes: {
+    gpuHost: true,
+    allDevices: false,
+  },
 };

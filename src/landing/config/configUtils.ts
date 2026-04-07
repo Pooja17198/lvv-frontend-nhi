@@ -10,7 +10,13 @@ export type PeriodicValidationRefreshConfig = {
     gpuRack: boolean;
     allRacks: boolean;
   };
+  deviceTypes: {
+    gpuHost: boolean;
+    allDevices: boolean;
+  };
 };
+
+export type PeriodicValidationRefreshDeviceType = "gpuHost";
 
 export type PeriodicValidationRefreshContext = {
   region?: string | null;
@@ -82,4 +88,22 @@ export function isPeriodicValidationRefreshEnabledForRack(
   }
 
   return false;
+}
+
+export function isPeriodicValidationRefreshEnabledForDeviceType(
+    deviceType: PeriodicValidationRefreshDeviceType
+): boolean {
+  if (PERIODIC_VALIDATION_REFRESH_CONFIG.deviceTypes.allDevices) {
+    return true;
+  }
+
+  if (deviceType === "gpuHost") {
+    return PERIODIC_VALIDATION_REFRESH_CONFIG.deviceTypes.gpuHost;
+  }
+
+  return false;
+}
+
+export function isPeriodicValidationRefreshEnabledForAllDevices(): boolean {
+  return PERIODIC_VALIDATION_REFRESH_CONFIG.deviceTypes.allDevices;
 }

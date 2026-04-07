@@ -14,7 +14,11 @@ import { IDE_API, LVV_API, POLLING } from "../constants";
 import { fetchWithRetry, createCsrfHeaders } from "../api";
 import { anyJobInProgress, isGpuComputeDevice, parseContentDispositionFilename } from "../utils";
 import { emitMetric, TELEMETRY_METRICS } from "../../telemetry/api";
-import { isPeriodicValidationRefreshEnabledForRack } from "../../../config/configUtils";
+import {
+    isPeriodicValidationRefreshEnabledForAllDevices,
+    isPeriodicValidationRefreshEnabledForDeviceType,
+    isPeriodicValidationRefreshEnabledForRack,
+} from "../../../config/configUtils";
 
 const VALIDATION_SERVICE_REFRESH_INTERVAL_MS = 10_000;
 
@@ -101,6 +105,32 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
                 isGpuRack: props.isGpuRack,
             }),
         [props.region, props.building, props.isGpuRack]
+    );
+    const periodicRefreshDeviceNames = useMemo(
+        () => {
+            if (!periodicValidationRefreshEnabled) {
+                return [];
+            }
+
+            return deviceStatuses
+                .filter((device) => {
+                    if (!isDeviceValidationEligible(device)) {
+                        return false;
+                    }
+
+                    if (isPeriodicValidationRefreshEnabledForAllDevices()) {
+                        return true;
+                    }
+
+                    if (isGpuComputeDevice(device.deviceName, props.isGpuRack)) {
+                        return isPeriodicValidationRefreshEnabledForDeviceType("gpuHost");
+                    }
+
+                    return false;
+                })
+                .map((device) => device.deviceName);
+        },
+        [deviceStatuses, periodicValidationRefreshEnabled, props.isGpuRack]
     );
 
     // Only run effects when rack context is complete (prevents running on Home page)
@@ -300,13 +330,18 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
       }
     }, [props.region, props.rack_serial, props.rack, props.building]);
 
-    const refreshValidationServiceResultsForFirstDevice = useCallback(async (): Promise<boolean> => {
+    const refreshValidationServiceResultsForConfiguredDevices = useCallback(async (): Promise<boolean> => {
         if (!rackContextReady) {
             return false;
         }
 
-        const firstDeviceName = deviceStatuses[0]?.deviceName;
-        if (!firstDeviceName || !props.region || !props.building || !props.rack_serial || !props.rack) {
+        if (
+            periodicRefreshDeviceNames.length === 0 ||
+            !props.region ||
+            !props.building ||
+            !props.rack_serial ||
+            !props.rack
+        ) {
             return false;
         }
 
@@ -321,7 +356,9 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
             url.searchParams.set("buildingName", props.building);
             url.searchParams.set("rackSerialNumber", props.rack_serial);
             url.searchParams.set("rackNumber", props.rack);
-            url.searchParams.append("deviceNames", firstDeviceName);
+            periodicRefreshDeviceNames.forEach((deviceName) => {
+                url.searchParams.append("deviceNames", deviceName);
+            });
 
             const resp = await fetchWithRetry(url.href, {
                 method: "GET",
@@ -342,7 +379,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         } catch (e: any) {
             if (e?.name !== "AbortError") {
                 console.warn("[RackValidation] periodic validation-service refresh failed", {
-                    deviceName: firstDeviceName,
+                    deviceNames: periodicRefreshDeviceNames,
                     message: e?.message || String(e),
                 });
             }
@@ -352,7 +389,7 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
         }
     }, [
         rackContextReady,
-        deviceStatuses,
+        periodicRefreshDeviceNames,
         props.region,
         props.building,
         props.rack_serial,
@@ -362,18 +399,23 @@ export function useRackValidation(props: RackProps): UseRackValidationResult {
     useEffect(() => {
         if (!periodicValidationRefreshEnabled) return;
         if (!rackContextReady) return;
-        if (deviceStatuses.length === 0) return;
+        if (periodicRefreshDeviceNames.length === 0) return;
 
-        void refreshValidationServiceResultsForFirstDevice();
+        void refreshValidationServiceResultsForConfiguredDevices();
 
         const intervalId = window.setInterval(() => {
-            void refreshValidationServiceResultsForFirstDevice();
+            void refreshValidationServiceResultsForConfiguredDevices();
         }, VALIDATION_SERVICE_REFRESH_INTERVAL_MS);
 
         return () => {
             window.clearInterval(intervalId);
         };
-    }, [periodicValidationRefreshEnabled, rackContextReady, deviceStatuses, refreshValidationServiceResultsForFirstDevice]);
+    }, [
+        periodicValidationRefreshEnabled,
+        rackContextReady,
+        periodicRefreshDeviceNames,
+        refreshValidationServiceResultsForConfiguredDevices,
+    ]);
 
     // initial/sequential load: devices then failures
     // Avoid "cancelled" flag; snapshot rack key and controller at effect start
