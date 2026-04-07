@@ -21,7 +21,6 @@ type RackMetadata = {
     building: string;
     block: string;
     rack: string;
-    isGpuRack?: boolean;
     ticket?: string;
     rackSerialNumber?: string;
     isGpuRack?: boolean;

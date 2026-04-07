@@ -15,6 +15,10 @@ export const VALIDATION_COLUMN_ORDER_BY_SECTION: Record<string, string[]> = {
   "Optic Errors": [
     "Device Name",
     "Device Port",
+    "Source Device Name",
+    "Source Device Port",
+    "Remote Device Name",
+    "Remote Device Port",
     "Tx Power",
     "Rx Power",
     "patchPanelMatrix",
@@ -22,6 +26,10 @@ export const VALIDATION_COLUMN_ORDER_BY_SECTION: Record<string, string[]> = {
   "Interface Errors": [
     "Device Name",
     "Device Port",
+    "Source Device Name",
+    "Source Device Port",
+    "Remote Device Name",
+    "Remote Device Port",
     "Issue",
     "patchPanelMatrix",
   ],
