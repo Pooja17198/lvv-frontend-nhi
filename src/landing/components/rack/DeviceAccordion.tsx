@@ -106,6 +106,11 @@ function toDevicePortKey(deviceName: string | undefined | null, devicePort: stri
   return `${normalizeDeviceName(deviceName)}|${normalizeDeviceName(devicePort)}`;
 }
 
+function isUsableLookupValue(value: string | undefined | null): boolean {
+  const normalized = normalizeDeviceName(value);
+  return normalized !== "" && normalized !== "unknown" && normalized !== "n/a" && normalized !== "na" && normalized !== "-";
+}
+
 function normalizeSectionTitle(value: string | undefined | null): string {
   return String(value || "").trim().toLowerCase();
 }
@@ -253,8 +258,12 @@ function addPatchPanelToSectionRows(
     const fallbackDevicePort = isLldpSection(sectionTitle)
       ? ""
       : String(row.sourceDevicePort ?? "");
-    const deviceName = primaryDeviceName || fallbackDeviceName;
-    const devicePort = primaryDevicePort || fallbackDevicePort;
+    const deviceName = isUsableLookupValue(primaryDeviceName)
+      ? primaryDeviceName
+      : (isUsableLookupValue(fallbackDeviceName) ? fallbackDeviceName : "");
+    const devicePort = isUsableLookupValue(primaryDevicePort)
+      ? primaryDevicePort
+      : (isUsableLookupValue(fallbackDevicePort) ? fallbackDevicePort : "");
     const key = toDevicePortKey(deviceName, devicePort);
     const patchPanelRows = patchPanelByDevicePort[key] || [];
     return {
