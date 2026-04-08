@@ -240,14 +240,21 @@ function addPatchPanelToSectionRows(
   }
 
   return rows.map((row) => {
-    const deviceName =
-      isLldpSection(sectionTitle)
-          ? String(row.deviceAName ?? "")
-          : String(row.deviceName ?? "");
-    const devicePort =
-      isLldpSection(sectionTitle)
-          ? String(row.deviceAPort ?? "")
-          : String(row.devicePort ?? "");
+    const primaryDeviceName = isLldpSection(sectionTitle)
+      ? String(row.deviceAName ?? "")
+      : String(row.deviceName ?? "");
+    const primaryDevicePort = isLldpSection(sectionTitle)
+      ? String(row.deviceAPort ?? "")
+      : String(row.devicePort ?? "");
+    // GPU optic/interface rows can be source-prefixed while still referring to the same port.
+    const fallbackDeviceName = isLldpSection(sectionTitle)
+      ? ""
+      : String(row.sourceDeviceName ?? "");
+    const fallbackDevicePort = isLldpSection(sectionTitle)
+      ? ""
+      : String(row.sourceDevicePort ?? "");
+    const deviceName = primaryDeviceName || fallbackDeviceName;
+    const devicePort = primaryDevicePort || fallbackDevicePort;
     const key = toDevicePortKey(deviceName, devicePort);
     const patchPanelRows = patchPanelByDevicePort[key] || [];
     return {
