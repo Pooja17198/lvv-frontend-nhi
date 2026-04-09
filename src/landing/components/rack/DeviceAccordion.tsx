@@ -258,17 +258,31 @@ function addPatchPanelToSectionRows(
   }
 
   return rows.map((row) => {
-    const { deviceName, devicePort } = isLldpSection(sectionTitle)
-      ? pickFirstUsablePair([
-        { name: row.deviceAName, port: row.deviceAPort },
-        { name: row.expectedDeviceBName, port: row.expectedDeviceBPort },
-      ])
-      : pickFirstUsablePair([
-        { name: row.deviceName, port: row.devicePort },
-        { name: row.remoteDeviceName ?? row.remoteDevice, port: row.remoteDevicePort ?? row.remoteInterface },
-      ]);
-    const key = toDevicePortKey(deviceName, devicePort);
-    const patchPanelRows = patchPanelByDevicePort[key] || [];
+    const lldpPrimaryPair = pickFirstUsablePair([
+      { name: row.deviceAName, port: row.deviceAPort },
+    ]);
+    const lldpFallbackPair = pickFirstUsablePair([
+      { name: row.expectedDeviceBName, port: row.expectedDeviceBPort },
+    ]);
+    const nonLldpPair = pickFirstUsablePair([
+      { name: row.deviceName, port: row.devicePort },
+      { name: row.remoteDeviceName ?? row.remoteDevice, port: row.remoteDevicePort ?? row.remoteInterface },
+    ]);
+
+    let patchPanelRows: PatchPanelRow[] = [];
+    if (isLldpSection(sectionTitle)) {
+      const primaryKey = toDevicePortKey(lldpPrimaryPair.deviceName, lldpPrimaryPair.devicePort);
+      patchPanelRows = patchPanelByDevicePort[primaryKey] || [];
+      // Only fall back to Expected Device B when primary key has no IDE rows.
+      if (patchPanelRows.length === 0) {
+        const fallbackKey = toDevicePortKey(lldpFallbackPair.deviceName, lldpFallbackPair.devicePort);
+        patchPanelRows = patchPanelByDevicePort[fallbackKey] || [];
+      }
+    } else {
+      const key = toDevicePortKey(nonLldpPair.deviceName, nonLldpPair.devicePort);
+      patchPanelRows = patchPanelByDevicePort[key] || [];
+    }
+
     return {
       ...row,
       patchPanelMatrix: renderPatchPanelValue(patchPanelRows),
