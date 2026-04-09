@@ -106,6 +106,11 @@ function toDevicePortKey(deviceName: string | undefined | null, devicePort: stri
   return `${normalizeDeviceName(deviceName)}|${normalizeDeviceName(devicePort)}`;
 }
 
+function isUsableLookupValue(value: string | undefined | null): boolean {
+  const normalized = normalizeDeviceName(value);
+  return normalized !== "" && normalized !== "unknown" && normalized !== "n/a" && normalized !== "na" && normalized !== "-";
+}
+
 function normalizeSectionTitle(value: string | undefined | null): string {
   return String(value || "").trim().toLowerCase();
 }
@@ -230,6 +235,19 @@ function renderPatchPanelValue(rows: PatchPanelRow[]): string {
     .join("\n\n");
 }
 
+function pickFirstUsablePair(
+    candidates: Array<{ name: unknown; port: unknown }>
+): { deviceName: string; devicePort: string } {
+  for (const candidate of candidates) {
+    const deviceName = String(candidate.name ?? "");
+    const devicePort = String(candidate.port ?? "");
+    if (isUsableLookupValue(deviceName) && isUsableLookupValue(devicePort)) {
+      return { deviceName, devicePort };
+    }
+  }
+  return { deviceName: "", devicePort: "" };
+}
+
 function addPatchPanelToSectionRows(
     sectionTitle: string,
     rows: ValidationTableRow[],
@@ -240,16 +258,36 @@ function addPatchPanelToSectionRows(
   }
 
   return rows.map((row) => {
-    const deviceName =
-      isLldpSection(sectionTitle)
-          ? String(row.deviceAName ?? "")
-          : String(row.deviceName ?? "");
-    const devicePort =
-      isLldpSection(sectionTitle)
-          ? String(row.deviceAPort ?? "")
-          : String(row.devicePort ?? "");
-    const key = toDevicePortKey(deviceName, devicePort);
-    const patchPanelRows = patchPanelByDevicePort[key] || [];
+    const lldpPrimaryPair = pickFirstUsablePair([
+      { name: row.deviceAName, port: row.deviceAPort },
+    ]);
+    const lldpFallbackPair = pickFirstUsablePair([
+      { name: row.expectedDeviceBName, port: row.expectedDeviceBPort },
+    ]);
+    const nonLldpPair = pickFirstUsablePair([
+      { name: row.deviceName, port: row.devicePort },
+      { name: row.remoteDeviceName ?? row.remoteDevice, port: row.remoteDevicePort ?? row.remoteInterface },
+    ]);
+
+    let patchPanelRows: PatchPanelRow[] = [];
+    if (isLldpSection(sectionTitle)) {
+      const hasUsablePrimaryPair =
+        isUsableLookupValue(lldpPrimaryPair.deviceName) &&
+        isUsableLookupValue(lldpPrimaryPair.devicePort);
+      if (hasUsablePrimaryPair) {
+        const primaryKey = toDevicePortKey(lldpPrimaryPair.deviceName, lldpPrimaryPair.devicePort);
+        patchPanelRows = patchPanelByDevicePort[primaryKey] || [];
+        // Fall back to Expected Device B only when primary pair is usable but IDE has no rows.
+        if (patchPanelRows.length === 0) {
+          const fallbackKey = toDevicePortKey(lldpFallbackPair.deviceName, lldpFallbackPair.devicePort);
+          patchPanelRows = patchPanelByDevicePort[fallbackKey] || [];
+        }
+      }
+    } else {
+      const key = toDevicePortKey(nonLldpPair.deviceName, nonLldpPair.devicePort);
+      patchPanelRows = patchPanelByDevicePort[key] || [];
+    }
+
     return {
       ...row,
       patchPanelMatrix: renderPatchPanelValue(patchPanelRows),
