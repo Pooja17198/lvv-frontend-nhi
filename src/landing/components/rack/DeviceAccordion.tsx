@@ -271,12 +271,17 @@ function addPatchPanelToSectionRows(
 
     let patchPanelRows: PatchPanelRow[] = [];
     if (isLldpSection(sectionTitle)) {
-      const primaryKey = toDevicePortKey(lldpPrimaryPair.deviceName, lldpPrimaryPair.devicePort);
-      patchPanelRows = patchPanelByDevicePort[primaryKey] || [];
-      // Only fall back to Expected Device B when primary key has no IDE rows.
-      if (patchPanelRows.length === 0) {
-        const fallbackKey = toDevicePortKey(lldpFallbackPair.deviceName, lldpFallbackPair.devicePort);
-        patchPanelRows = patchPanelByDevicePort[fallbackKey] || [];
+      const hasUsablePrimaryPair =
+        isUsableLookupValue(lldpPrimaryPair.deviceName) &&
+        isUsableLookupValue(lldpPrimaryPair.devicePort);
+      if (hasUsablePrimaryPair) {
+        const primaryKey = toDevicePortKey(lldpPrimaryPair.deviceName, lldpPrimaryPair.devicePort);
+        patchPanelRows = patchPanelByDevicePort[primaryKey] || [];
+        // Fall back to Expected Device B only when primary pair is usable but IDE has no rows.
+        if (patchPanelRows.length === 0) {
+          const fallbackKey = toDevicePortKey(lldpFallbackPair.deviceName, lldpFallbackPair.devicePort);
+          patchPanelRows = patchPanelByDevicePort[fallbackKey] || [];
+        }
       }
     } else {
       const key = toDevicePortKey(nonLldpPair.deviceName, nonLldpPair.devicePort);
