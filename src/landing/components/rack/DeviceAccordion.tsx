@@ -251,13 +251,13 @@ function addPatchPanelToSectionRows(
     const primaryDevicePort = isLldpSection(sectionTitle)
       ? String(row.deviceAPort ?? "")
       : String(row.devicePort ?? "");
-    // GPU optic/interface rows can be source-prefixed while still referring to the same port.
+    // GPU optic/interface rows may only expose remote side fields.
     const fallbackDeviceName = isLldpSection(sectionTitle)
       ? ""
-      : String(row.sourceDeviceName ?? "");
+      : String(row.remoteDeviceName ?? row.remoteDevice ?? "");
     const fallbackDevicePort = isLldpSection(sectionTitle)
       ? ""
-      : String(row.sourceDevicePort ?? "");
+      : String(row.remoteDevicePort ?? row.remoteInterface ?? "");
     const deviceName = isUsableLookupValue(primaryDeviceName)
       ? primaryDeviceName
       : (isUsableLookupValue(fallbackDeviceName) ? fallbackDeviceName : "");
