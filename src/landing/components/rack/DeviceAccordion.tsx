@@ -235,6 +235,19 @@ function renderPatchPanelValue(rows: PatchPanelRow[]): string {
     .join("\n\n");
 }
 
+function pickFirstUsablePair(
+    candidates: Array<{ name: unknown; port: unknown }>
+): { deviceName: string; devicePort: string } {
+  for (const candidate of candidates) {
+    const deviceName = String(candidate.name ?? "");
+    const devicePort = String(candidate.port ?? "");
+    if (isUsableLookupValue(deviceName) && isUsableLookupValue(devicePort)) {
+      return { deviceName, devicePort };
+    }
+  }
+  return { deviceName: "", devicePort: "" };
+}
+
 function addPatchPanelToSectionRows(
     sectionTitle: string,
     rows: ValidationTableRow[],
@@ -245,25 +258,15 @@ function addPatchPanelToSectionRows(
   }
 
   return rows.map((row) => {
-    const primaryDeviceName = isLldpSection(sectionTitle)
-      ? String(row.deviceAName ?? "")
-      : String(row.deviceName ?? "");
-    const primaryDevicePort = isLldpSection(sectionTitle)
-      ? String(row.deviceAPort ?? "")
-      : String(row.devicePort ?? "");
-    // GPU optic/interface rows may only expose remote side fields.
-    const fallbackDeviceName = isLldpSection(sectionTitle)
-      ? ""
-      : String(row.remoteDeviceName ?? row.remoteDevice ?? "");
-    const fallbackDevicePort = isLldpSection(sectionTitle)
-      ? ""
-      : String(row.remoteDevicePort ?? row.remoteInterface ?? "");
-    const deviceName = isUsableLookupValue(primaryDeviceName)
-      ? primaryDeviceName
-      : (isUsableLookupValue(fallbackDeviceName) ? fallbackDeviceName : "");
-    const devicePort = isUsableLookupValue(primaryDevicePort)
-      ? primaryDevicePort
-      : (isUsableLookupValue(fallbackDevicePort) ? fallbackDevicePort : "");
+    const { deviceName, devicePort } = isLldpSection(sectionTitle)
+      ? pickFirstUsablePair([
+        { name: row.deviceAName, port: row.deviceAPort },
+        { name: row.expectedDeviceBName, port: row.expectedDeviceBPort },
+      ])
+      : pickFirstUsablePair([
+        { name: row.deviceName, port: row.devicePort },
+        { name: row.remoteDeviceName ?? row.remoteDevice, port: row.remoteDevicePort ?? row.remoteInterface },
+      ]);
     const key = toDevicePortKey(deviceName, devicePort);
     const patchPanelRows = patchPanelByDevicePort[key] || [];
     return {
